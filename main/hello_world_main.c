@@ -18,10 +18,10 @@
 void app_main(void)
 {
     // Initialize WiFi
-    wifi_init();
+    // wifi_init();
 
     // Initialize ESP-NOW
-    initialize_esp_now();
+    // initialize_esp_now();
 
     // LCD IO and Panel Handles
     esp_lcd_panel_io_handle_t lcd_io = NULL;
