@@ -7,21 +7,133 @@
 #include "esp_log.h"
 
 #include "lcd.h"
-#include "esp_now_receiver.h"
+#include "esp_now.h"
+#include "esp_wifi.h"
+#include "esp_netif.h"
+#include "esp_system.h"
+#include "nvs_flash.h"
+#include "esp_log.h"
+
 #include "voltage_graph.h"
 #include <lvgl.h>
 
+#define TAG "ESP_RECEIVER"
 #define APP_TAG "MAIN_APP"
 
-#define DATA_UPDATE_INTERVAL_MS 50
+typedef struct
+{
+    unsigned int state;
+    char err[20];
+    float batt1_voltage;
+    float batt2_voltage;
+    float total_voltage;
+    float load_current;
+    bool isBalancing;
+    bool isCharging;
+    bool isOutputLoad;
+    bool hasLoad;
+} esp_now_data_t;
+
+uint8_t master_mac[ESP_NOW_ETH_ALEN] = {0x78, 0x21, 0x84, 0x8d, 0x09, 0x48};
+
+float batt1 = 0;
+float batt2 = 0;
+float total = 0;
+unsigned int bms_status = 0;
+bool isBalancing;
+bool isCharging;
+bool isOutputLoad;
+bool hasLoad;
+float load_current;
+
+static void esp_now_recv_callback(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len)
+{
+    if (data_len != sizeof(esp_now_data_t))
+    {
+        ESP_LOGE(TAG, "Received invalid data length");
+        return;
+    }
+
+    esp_now_data_t *received_data = (esp_now_data_t *)data;
+
+    ESP_LOGI(TAG, "Received Data:");
+    ESP_LOGI(TAG, "Battery 1 Voltage: %f", received_data->batt1_voltage);
+    ESP_LOGI(TAG, "Battery 2 Voltage: %f", received_data->batt2_voltage);
+    ESP_LOGI(TAG, "Total Voltage: %f", received_data->total_voltage);
+
+    batt1 = received_data->batt1_voltage;
+    batt2 = received_data->batt2_voltage;
+    total = received_data->total_voltage;
+    bms_status = received_data->state;
+    isBalancing = received_data->isBalancing;
+    isCharging = received_data->isCharging;
+    isOutputLoad = received_data->isOutputLoad;
+    hasLoad = received_data->hasLoad;
+    load_current = received_data->load_current;
+}
+
+void wifi_init(void)
+{
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(ret);
+
+    ESP_ERROR_CHECK(esp_netif_init());
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_start());
+}
+
+void initialize_esp_now(void)
+{
+    esp_err_t err = esp_now_init();
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to initialize ESP-NOW: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = esp_now_register_recv_cb(esp_now_recv_callback);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to register receive callback: %s", esp_err_to_name(err));
+        return;
+    }
+
+    // Add peer (master device)
+    esp_now_peer_info_t peer_info = {
+        .peer_addr = {0},
+        .channel = 0,
+        .ifidx = ESP_IF_WIFI_STA,
+        .encrypt = false};
+    memcpy(peer_info.peer_addr, master_mac, ESP_NOW_ETH_ALEN);
+
+    err = esp_now_add_peer(&peer_info);
+    if (err != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to add peer: %s", esp_err_to_name(err));
+        return;
+    }
+
+    ESP_LOGI(TAG, "ESP-NOW Initialized Successfully");
+}
 
 void app_main(void)
 {
+    char data_text[100];
     // Initialize WiFi
-    // wifi_init();
+    wifi_init();
 
     // Initialize ESP-NOW
-    // initialize_esp_now();
+    initialize_esp_now();
 
     // LCD IO and Panel Handles
     esp_lcd_panel_io_handle_t lcd_io = NULL;
@@ -51,33 +163,90 @@ void app_main(void)
     lv_obj_t *screen = lv_screen_active();
     lv_obj_set_style_bg_color(screen, lv_color_white(), LV_PART_MAIN);
 
-    // Title label
-    lv_obj_t *title_label = lv_label_create(screen);
-    lv_label_set_text(title_label, "Voltage Graph");
-    lv_obj_set_style_text_color(title_label, lv_color_black(), LV_PART_MAIN);
-    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 10);
+    lv_obj_t *batt1_label = lv_label_create(screen);
+    lv_obj_set_pos(batt1_label, 50, 0);
 
-    // Create voltage chart
-    lv_obj_t *voltage_chart = create_voltage_chart(screen);
-    lv_obj_center(voltage_chart);
+    lv_obj_t *batt2_label = lv_label_create(screen);
+    lv_obj_set_pos(batt2_label, 50, 20);
 
-    // Get the voltage series
-    lv_chart_series_t *voltage_series = lv_chart_get_series_next(voltage_chart, NULL);
+    lv_obj_t *total_label = lv_label_create(screen);
+    lv_obj_set_pos(total_label, 50, 40);
 
-    // Periodically update the display with simulated voltage data
-    int counter = 0;
+    lv_obj_t *state_label = lv_label_create(screen);
+    lv_obj_set_pos(state_label, 50, 60);
+
+    lv_obj_t *load_status_label = lv_label_create(screen);
+    lv_obj_set_pos(load_status_label, 50, 80);
+
+    lv_obj_t *balance_status_label = lv_label_create(screen);
+    lv_obj_set_pos(balance_status_label, 50, 100);
+
+    lv_obj_t *charge_status_label = lv_label_create(screen);
+    lv_obj_set_pos(charge_status_label, 50, 120);
+
     while (1)
     {
-        // Simulate voltage data (sine wave between 0-9V)
-        float voltage = 4.5 + 4.5 * sin(counter * 0.1);
+        snprintf(data_text, sizeof(data_text), "Battery 1 -> %.2f ", batt1);
+        lv_label_set_text(batt1_label, data_text);
 
-        // Add data point to chart
-        lv_chart_set_next_value(voltage_chart, voltage_series, (int16_t)(voltage * 10));
+        snprintf(data_text, sizeof(data_text), "Battery 2 -> %.2f ", batt2);
+        lv_label_set_text(batt2_label, data_text);
 
-        // Increment counter
-        counter++;
+        snprintf(data_text, sizeof(data_text), "Total -> %.2f ", total);
+        lv_label_set_text(total_label, data_text);
 
-        // Delay to simulate update interval
+        if (bms_status == 0)
+        {
+            snprintf(data_text, sizeof(data_text), "State -> IDLE");
+        }
+        else if (bms_status == 1)
+        {
+            snprintf(data_text, sizeof(data_text), "State -> DISCONNECTED");
+        }
+        else if (bms_status == 2)
+        {
+            snprintf(data_text, sizeof(data_text), "State -> CHARGING");
+        }
+        else if (bms_status == 3)
+        {
+            snprintf(data_text, sizeof(data_text), "State -> DISCHARGING");
+        }
+        else if (bms_status == 4)
+        {
+            snprintf(data_text, sizeof(data_text), "State -> BALANCING");
+        }
+        lv_label_set_text(state_label, data_text);
+
+        if (hasLoad)
+        {
+            snprintf(data_text, sizeof(data_text), "Load -> YES");
+        }
+        else
+        {
+            snprintf(data_text, sizeof(data_text), "Load -> NO");
+        }
+        lv_label_set_text(load_status_label, data_text);
+
+        if (isBalancing)
+        {
+            snprintf(data_text, sizeof(data_text), "Balancing -> YES");
+        }
+        else
+        {
+            snprintf(data_text, sizeof(data_text), "Balancing -> NO");
+        }
+        lv_label_set_text(balance_status_label, data_text);
+
+        if (isCharging)
+        {
+            snprintf(data_text, sizeof(data_text), "Charging -> YES");
+        }
+        else
+        {
+            snprintf(data_text, sizeof(data_text), "Charging -> NO");
+        }
+        lv_label_set_text(charge_status_label, data_text);
+
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
