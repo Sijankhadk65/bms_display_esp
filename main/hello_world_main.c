@@ -46,6 +46,10 @@ bool isOutputLoad;
 bool hasLoad;
 float load_current;
 
+char data_text[100];
+
+static lv_style_t icon_style;
+
 static void esp_now_recv_callback(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len)
 {
     if (data_len != sizeof(esp_now_data_t))
@@ -126,9 +130,28 @@ void initialize_esp_now(void)
     ESP_LOGI(TAG, "ESP-NOW Initialized Successfully");
 }
 
+void set_battery_indicator_GUI(float voltage)
+{
+    if (voltage > 2.25 && voltage < 4.5)
+    {
+        snprintf(data_text, sizeof(data_text), "%s : %.2f ", LV_SYMBOL_BATTERY_3, voltage);
+        lv_style_set_text_color(&icon_style, lv_color_make(12, 229, 12));
+    }
+    else if (voltage < 2.25 && voltage > 1.0)
+    {
+        snprintf(data_text, sizeof(data_text), "%s : %.2f ", LV_SYMBOL_BATTERY_2, voltage);
+        lv_style_set_text_color(&icon_style, lv_color_make(12, 117, 229));
+    }
+    else
+    {
+        snprintf(data_text, sizeof(data_text), "%s : %.2f ", LV_SYMBOL_BATTERY_1, voltage);
+        lv_style_set_text_color(&icon_style, lv_color_make(12, 12, 229)); // BGR
+    }
+}
+
 void app_main(void)
 {
-    char data_text[100];
+
     // Initialize WiFi
     wifi_init();
 
@@ -186,64 +209,67 @@ void app_main(void)
 
     while (1)
     {
-        snprintf(data_text, sizeof(data_text), "Battery 1 -> %.2f ", batt1);
+        set_battery_indicator_GUI(batt1);
+        lv_obj_add_style(batt1_label, &icon_style, 0);
         lv_label_set_text(batt1_label, data_text);
 
-        snprintf(data_text, sizeof(data_text), "Battery 2 -> %.2f ", batt2);
+        set_battery_indicator_GUI(batt2);
+        lv_obj_add_style(batt2_label, &icon_style, 0);
         lv_label_set_text(batt2_label, data_text);
 
-        snprintf(data_text, sizeof(data_text), "Total -> %.2f ", total);
+        set_battery_indicator_GUI(total);
+        lv_obj_add_style(total_label, &icon_style, 0);
         lv_label_set_text(total_label, data_text);
 
         if (bms_status == 0)
         {
-            snprintf(data_text, sizeof(data_text), "State -> IDLE");
+            snprintf(data_text, sizeof(data_text), "%s IDLE", LV_SYMBOL_PAUSE);
         }
         else if (bms_status == 1)
         {
-            snprintf(data_text, sizeof(data_text), "State -> DISCONNECTED");
+            snprintf(data_text, sizeof(data_text), "%s DISCONNECTED", LV_SYMBOL_WARNING);
         }
         else if (bms_status == 2)
         {
-            snprintf(data_text, sizeof(data_text), "State -> CHARGING");
+            snprintf(data_text, sizeof(data_text), "%s CHARGING", LV_SYMBOL_CHARGE);
         }
         else if (bms_status == 3)
         {
-            snprintf(data_text, sizeof(data_text), "State -> DISCHARGING");
+            snprintf(data_text, sizeof(data_text), "%s DISCHARGING", LV_SYMBOL_POWER);
         }
         else if (bms_status == 4)
         {
-            snprintf(data_text, sizeof(data_text), "State -> BALANCING");
+            snprintf(data_text, sizeof(data_text), "%s BALANCING", LV_SYMBOL_REFRESH);
         }
         lv_label_set_text(state_label, data_text);
 
         if (hasLoad)
         {
-            snprintf(data_text, sizeof(data_text), "Load -> YES");
+            snprintf(data_text, sizeof(data_text), "Load %s", LV_SYMBOL_OK);
         }
         else
         {
-            snprintf(data_text, sizeof(data_text), "Load -> NO");
+            snprintf(data_text, sizeof(data_text), "Load %s", LV_SYMBOL_CLOSE);
         }
         lv_label_set_text(load_status_label, data_text);
 
         if (isBalancing)
         {
-            snprintf(data_text, sizeof(data_text), "Balancing -> YES");
+            snprintf(data_text, sizeof(data_text), "Balancing %s", LV_SYMBOL_OK);
         }
         else
         {
-            snprintf(data_text, sizeof(data_text), "Balancing -> NO");
+            snprintf(data_text, sizeof(data_text), "Balancing %s", LV_SYMBOL_CLOSE);
         }
         lv_label_set_text(balance_status_label, data_text);
 
         if (isCharging)
         {
-            snprintf(data_text, sizeof(data_text), "Charging -> YES");
+            snprintf(data_text, sizeof(data_text), "Charging %s", LV_SYMBOL_OK);
         }
         else
         {
-            snprintf(data_text, sizeof(data_text), "Charging -> NO");
+            snprintf(data_text, sizeof(data_text), "Charging %s", LV_SYMBOL_CLOSE);
         }
         lv_label_set_text(charge_status_label, data_text);
 
