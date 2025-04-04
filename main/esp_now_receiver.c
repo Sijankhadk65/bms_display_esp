@@ -24,6 +24,16 @@ static void esp_now_recv_callback(const esp_now_recv_info_t *recv_info, const ui
     ESP_LOGI(TAG, "Battery 1 Voltage: %f", received_data->batt1_voltage);
     ESP_LOGI(TAG, "Battery 2 Voltage: %f", received_data->batt2_voltage);
     ESP_LOGI(TAG, "Total Voltage: %f", received_data->total_voltage);
+
+    // batt1 = received_data->batt1_voltage;
+    // batt2 = received_data->batt2_voltage;
+    // total = received_data->total_voltage;
+    // bms_status = received_data->state;
+    // isBalancing = received_data->isBalancing;
+    // isCharging = received_data->isCharging;
+    // isOutputLoad = received_data->isOutputLoad;
+    // hasLoad = received_data->hasLoad;
+    // load_current = received_data->load_current;
 }
 
 void wifi_init(void)
