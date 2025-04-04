@@ -6,15 +6,16 @@
 // Structure to store received data
 typedef struct
 {
-    char timeStamp[32];
-    unsigned int status;
+    unsigned int state;
+    char err[20];
     float batt1_voltage;
     float batt2_voltage;
     float total_voltage;
+    float load_current;
     bool isBalancing;
-    bool isOverload;
-    bool shouldCharge;
+    bool isCharging;
     bool isOutputLoad;
+    bool hasLoad;
 } esp_now_data_t;
 
 #endif // ESP_NOW_DATA_H
